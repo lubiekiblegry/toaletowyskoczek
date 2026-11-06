@@ -1,0 +1,462 @@
+
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toaletowy Skoczek 🚽</title>
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #111827;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+
+h1 { margin: 15px 0 5px; }
+
+#game {
+  position: relative;
+  width: 96%;
+  max-width: 900px;
+  margin: 15px auto;
+  overflow: hidden;
+  border: 3px solid #475569;
+  border-radius: 12px;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+#record {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #111827dd;
+  font-weight: bold;
+}
+
+#record span { color: #ffdc45; }
+
+#overlay {
+  position: absolute;
+  inset: 0;
+  background: #101827cc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 15px;
+}
+
+#overlay h2 { font-size: 30px; }
+
+button {
+  padding: 15px 25px;
+  border: none;
+  border-radius: 12px;
+  background: #ffda44;
+  color: #172033;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+#jump {
+  display: block;
+  width: 85%;
+  max-width: 400px;
+  margin: 12px auto;
+  background: #22c55e;
+  touch-action: manipulation;
+}
+
+.info { color: #cbd5e1; }
+</style>
+</head>
+
+<body>
+
+<h1>🚽 Toaletowy Skoczek</h1>
+<p>Przeskakuj kible i bij rekord!</p>
+
+<div id="game">
+  <canvas id="canvas" width="900" height="420"></canvas>
+
+  <div id="record">
+    🏆 REKORD<br>
+    <span id="best">0</span>
+  </div>
+
+  <div id="overlay">
+    <h2>🚽 Toaletowy Skoczek</h2>
+    <p>Każdy przeskoczony kibel to 1 punkt!</p>
+    <button id="start">START GRY</button>
+  </div>
+</div>
+
+<button id="jump">⬆ SKACZ!</button>
+<p class="info">Sterowanie: SPACJA, strzałka ↑ lub przycisk SKACZ.</p>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const overlay = document.getElementById("overlay");
+const bestText = document.getElementById("best");
+
+const cities = [
+  {name:"WARSZAWA", sky:"#83d4ff"},
+  {name:"NOWY JORK", sky:"#9bc9f3"},
+  {name:"PARYŻ", sky:"#f5c7a0"},
+  {name:"TOKIO", sky:"#f4b9d0"},
+  {name:"LONDYN", sky:"#b4c9dd"},
+  {name:"DUBAJ", sky:"#ffd49b"},
+  {name:"RZYM", sky:"#f4d9aa"},
+  {name:"RIO DE JANEIRO", sky:"#8ee0ce"}
+];
+
+let best = 0;
+
+try {
+  best = Number(localStorage.getItem("toaletowyRekord")) || 0;
+} catch(e) {}
+
+bestText.textContent = best;
+
+let city;
+let player;
+let obstacles;
+let score = 0;
+let speed = 6;
+let spawnTimer = 0;
+let running = false;
+let lastTime = 0;
+let animationId = null;
+
+function newGame() {
+  if (animationId !== null) {
+    cancelAnimationFrame(animationId);
+  }
+
+  city = cities[Math.floor(Math.random() * cities.length)];
+
+  player = {
+    x: 100,
+    y: 265,
+    w: 48,
+    h: 65,
+    vy: 0,
+    grounded: true
+  };
+
+  obstacles = [];
+  score = 0;
+  speed = 6;
+  spawnTimer = 45;
+  running = true;
+  lastTime = performance.now();
+
+  overlay.style.display = "none";
+  draw();
+  animationId = requestAnimationFrame(loop);
+}
+
+function jump() {
+  if (running && player.grounded) {
+    player.vy = -16;
+    player.grounded = false;
+  }
+}
+
+document.getElementById("start").onclick = newGame;
+
+document.getElementById("jump").addEventListener("pointerdown", e => {
+  e.preventDefault();
+
+  if (!running) {
+    newGame();
+  } else {
+    jump();
+  }
+});
+
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" || e.code === "ArrowUp") {
+    e.preventDefault();
+
+    if (!running) {
+      newGame();
+    } else {
+      jump();
+    }
+  }
+});
+
+canvas.addEventListener("pointerdown", () => {
+  if (running) jump();
+});
+
+function drawCity() {
+  ctx.fillStyle = city ? city.sky : "#83d4ff";
+  ctx.fillRect(0, 0, 900, 420);
+
+  // Słońce
+  ctx.fillStyle = "#fff0a3";
+  ctx.beginPath();
+  ctx.arc(740, 75, 36, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Chmury
+  ctx.fillStyle = "#ffffffbb";
+
+  for (let i = 0; i < 4; i++) {
+    let x = ((i * 280 - score * 0.7) % 1050 + 1050) % 1050 - 50;
+    let y = 65 + (i % 2) * 35;
+
+    ctx.beginPath();
+    ctx.arc(x, y, 20, 0, Math.PI * 2);
+    ctx.arc(x + 24, y - 10, 27, 0, Math.PI * 2);
+    ctx.arc(x + 49, y, 20, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Budynki miasta
+  for (let i = 0; i < 13; i++) {
+    let x = i * 78 - (score * 0.7 % 78);
+    let w = 55 + (i % 3) * 10;
+    let h = 90 + (i * 43 % 115);
+
+    ctx.fillStyle = ["#647b96", "#8c9fb3", "#526981"][i % 3];
+    ctx.fillRect(x, 330 - h, w, h);
+
+    ctx.fillStyle = "#ffe8a1";
+
+    for (let wy = 345 - h; wy < 315; wy += 25) {
+      for (let wx = x + 10; wx < x + w - 5; wx += 20) {
+        ctx.fillRect(wx, wy, 9, 12);
+      }
+    }
+  }
+
+  // Ulica
+  ctx.fillStyle = "#424b5b";
+  ctx.fillRect(0, 330, 900, 90);
+
+  ctx.fillStyle = "#f8dd6b";
+
+  for (let x = 0; x < 1000; x += 100) {
+    let lineX = (x - score * 2 % 100 + 100) % 1000;
+    ctx.fillRect(lineX, 375, 45, 5);
+  }
+
+  ctx.fillStyle = "#f5f5f5";
+  ctx.fillRect(0, 330, 900, 5);
+
+  ctx.fillStyle = "#142033";
+  ctx.font = "bold 22px Arial";
+  ctx.fillText("📍 " + (city ? city.name : "MIASTO"), 18, 35);
+}
+
+function drawPlayer() {
+  // Głowa
+  ctx.fillStyle = "#ffd0a0";
+  ctx.beginPath();
+  ctx.arc(player.x + 25, player.y + 15, 17, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Włosy
+  ctx.fillStyle = "#513728";
+  ctx.fillRect(player.x + 11, player.y - 1, 25, 7);
+
+  // Koszulka
+  ctx.fillStyle = "#3185ff";
+  ctx.fillRect(player.x + 9, player.y + 31, 32, 23);
+
+  // Ręce
+  ctx.strokeStyle = "#ffd0a0";
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(player.x + 10, player.y + 35);
+  ctx.lineTo(player.x, player.y + 45);
+  ctx.moveTo(player.x + 40, player.y + 35);
+  ctx.lineTo(player.x + 48, player.y + 43);
+  ctx.stroke();
+
+  // Nogi
+  let swing = player.grounded ? Math.sin(performance.now() / 70) * 8 : 0;
+
+  ctx.strokeStyle = "#172033";
+  ctx.lineWidth = 7;
+  ctx.lineCap = "round";
+
+  ctx.beginPath();
+  ctx.moveTo(player.x + 17, player.y + 53);
+  ctx.lineTo(player.x + 12 + swing, player.y + 64);
+
+  ctx.moveTo(player.x + 33, player.y + 53);
+  ctx.lineTo(player.x + 37 - swing, player.y + 64);
+  ctx.stroke();
+
+  // Oko
+  ctx.fillStyle = "#172033";
+  ctx.beginPath();
+  ctx.arc(player.x + 31, player.y + 14, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawToilet(o) {
+  ctx.save();
+  ctx.translate(o.x, 330);
+
+  // Zbiornik
+  ctx.fillStyle = "#f8fafc";
+  ctx.fillRect(13, -53, 36, 26);
+
+  // Pokrywa
+  ctx.fillStyle = "#dbe5ef";
+  ctx.beginPath();
+  ctx.ellipse(31, -28, 29, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Miska
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.moveTo(5, -29);
+  ctx.lineTo(55, -29);
+  ctx.lineTo(50, -9);
+  ctx.quadraticCurveTo(30, 5, 10, -9);
+  ctx.closePath();
+  ctx.fill();
+
+  // Podstawa
+  ctx.fillStyle = "#dce5ed";
+  ctx.fillRect(16, -8, 30, 9);
+
+  ctx.restore();
+}
+
+function draw() {
+  drawCity();
+
+  for (const o of obstacles) {
+    drawToilet(o);
+  }
+
+  drawPlayer();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 26px Arial";
+  ctx.fillText("Wynik: " + score, 18, 75);
+}
+
+function endGame() {
+  running = false;
+
+  overlay.innerHTML = `
+    <h2>💥 KONIEC GRY!</h2>
+    <p>Miasto: ${city.name}</p>
+    <p>Twój wynik: <b>${score}</b></p>
+    <p>🏆 Rekord: <b>${best}</b></p>
+    <button id="again">ZAGRAJ PONOWNIE</button>
+  `;
+
+  overlay.style.display = "flex";
+  document.getElementById("again").onclick = newGame;
+}
+
+function loop(time) {
+  if (!running) return;
+
+  const dt = Math.min((time - lastTime) / 16.67, 2);
+  lastTime = time;
+
+  // Prędkość rośnie z czasem, ale wynik nie!
+  speed = Math.min(6 + score * 0.15, 12);
+
+  // Skok i grawitacja
+  player.vy += 0.8 * dt;
+  player.y += player.vy * dt;
+
+  if (player.y >= 265) {
+    player.y = 265;
+    player.vy = 0;
+    player.grounded = true;
+  }
+
+  // Nowe kible
+  spawnTimer -= dt;
+
+  if (spawnTimer <= 0) {
+    obstacles.push({
+      x: 930,
+      w: 58,
+      counted: false
+    });
+
+    spawnTimer = 75 + Math.random() * 35;
+  }
+
+  // Przesuwanie przeszkód
+  for (const o of obstacles) {
+    o.x -= speed * dt;
+
+    // Punkt dopiero po minięciu kibla
+    if (!o.counted && o.x + 58 < player.x) {
+      o.counted = true;
+      score += 1;
+
+      // Rekord aktualizuje się od razu po jego pobiciu
+      if (score > best) {
+        best = score;
+        bestText.textContent = best;
+
+        try {
+          localStorage.setItem("toaletowyRekord", String(best));
+        } catch (e) {}
+      }
+    }
+  }
+
+  obstacles = obstacles.filter(o => o.x > -100);
+
+  // Kolizja z kiblem
+  for (const o of obstacles) {
+    const px = player.x + 8;
+    const py = player.y + 5;
+
+    if (
+      px + 32 > o.x + 5 &&
+      px < o.x + 53 &&
+      py + 57 > 330 - 53 &&
+      py < 330
+    ) {
+      draw();
+      endGame();
+      return;
+    }
+  }
+
+  draw();
+  animationId = requestAnimationFrame(loop);
+}
+
+// Ekran przed rozpoczęciem
+city = cities[0];
+player = {x:100, y:265, vy:0, grounded:true};
+obstacles = [];
+draw();
+
+ctx.fillStyle = "#172033";
+ctx.font = "bold 22px Arial";
+ctx.fillText("Naciśnij START, aby rozpocząć!", 240, 210);
+</script>
+</body>
+</html>
